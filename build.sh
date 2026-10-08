@@ -1,72 +1,98 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Para a execução se algum comando falhar
-set -e
+set -Eeuo pipefail
 
-APP_NAME="cnh-simulated"
-VERSION="1.0.0"
-MAINTAINER="username <email@gmail.com>"
-ARCH="amd64"
+APP_NAME="TouriiRoute"
+PACKAGE_NAME="touriiroute"
+VERSION="2.0"
+MAINTAINER="gui23x"
 
-echo "🧹 1. Limpando builds anteriores..."
-rm -rf build dist "${APP_NAME}_${VERSION}_${ARCH}" "${APP_NAME}_${VERSION}_${ARCH}.deb"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
-echo "📦 2. Instalando o PyInstaller via uv..."
-uv pip install pyinstaller
+OUTPUT_DIR="${SCRIPT_DIR}/build_complete"
+BUILD_DIR="${SCRIPT_DIR}/build"
+DIST_DIR="${SCRIPT_DIR}/dist"
+ICON_PATH="${SCRIPT_DIR}/assets/icon.png"
 
-echo "⚙️ 3. Construindo o executável com PyInstaller..."
-# Empacota o programa e inclui os diretórios assets e json.
-# O PyInstaller detecta o código python automaticamente.
-uv run pyinstaller --name "${APP_NAME}" \
+if ! command -v uv >/dev/null 2>&1; then
+    echo "Erro: uv não está instalado ou não está disponível no PATH." >&2
+    exit 1
+fi
+
+if ! command -v dpkg-deb >/dev/null 2>&1; then
+    echo "Erro: dpkg-deb não está instalado. Instale o pacote dpkg." >&2
+    exit 1
+fi
+
+if [[ ! -f "${SCRIPT_DIR}/main.py" || ! -f "$ICON_PATH" ]]; then
+    echo "Erro: main.py ou assets/icon.png não foi encontrado." >&2
+    exit 1
+fi
+
+ARCH="$(dpkg --print-architecture)"
+DEB_DIR="${BUILD_DIR}/${PACKAGE_NAME}_${VERSION}_${ARCH}"
+DEB_FILE="${PACKAGE_NAME}_${VERSION}_${ARCH}.deb"
+LEGACY_DEB_DIR="${SCRIPT_DIR}/ToriiRoute_${VERSION}_${ARCH}"
+LEGACY_DEB_FILE="${SCRIPT_DIR}/ToriiRoute_${VERSION}_${ARCH}.deb"
+
+echo "Limpando artefatos de builds anteriores..."
+rm -rf -- "$BUILD_DIR" "$DIST_DIR" "$OUTPUT_DIR" "$LEGACY_DEB_DIR" "$LEGACY_DEB_FILE"
+mkdir -p "$OUTPUT_DIR"
+
+echo "Construindo o executável Linux..."
+uv run pyinstaller \
+    --name "$APP_NAME" \
+    --onefile \
     --windowed \
     --noconfirm \
     --add-data "assets:assets" \
     --add-data "json:json" \
     main.py
 
-echo "📁 4. Criando a estrutura do pacote Debian (.deb)..."
-DEB_DIR="${APP_NAME}_${VERSION}_${ARCH}"
+if [[ ! -x "${DIST_DIR}/${APP_NAME}" ]]; then
+    echo "Erro: o PyInstaller não gerou o executável esperado em ${DIST_DIR}/${APP_NAME}." >&2
+    exit 1
+fi
 
-mkdir -p "${DEB_DIR}/DEBIAN"
-mkdir -p "${DEB_DIR}/opt/${APP_NAME}"
-mkdir -p "${DEB_DIR}/usr/share/applications"
-mkdir -p "${DEB_DIR}/usr/share/icons/hicolor/scalable/apps"
-mkdir -p "${DEB_DIR}/usr/bin"
+cp -- "${DIST_DIR}/${APP_NAME}" "${OUTPUT_DIR}/${APP_NAME}-linux"
+chmod +x "${OUTPUT_DIR}/${APP_NAME}-linux"
 
-echo "📝 5. Criando o arquivo control..."
-cat <<EOF > "${DEB_DIR}/DEBIAN/control"
-Package: ${APP_NAME}
+echo "Montando o pacote Debian..."
+mkdir -p \
+    "${DEB_DIR}/DEBIAN" \
+    "${DEB_DIR}/opt/${APP_NAME}" \
+    "${DEB_DIR}/usr/share/applications" \
+    "${DEB_DIR}/usr/bin"
+
+cat > "${DEB_DIR}/DEBIAN/control" <<EOF
+Package: ${PACKAGE_NAME}
 Version: ${VERSION}
 Architecture: ${ARCH}
 Maintainer: ${MAINTAINER}
-Description: CNH Simulated - Preparatório para a Prova Teórica
- Um aplicativo desktop moderno para preparação para o exame teórico da CNH (DETRAN).
- Suporta simulações offline com banco local e geração de novas questões usando Inteligência Artificial (Google Gemini).
+Description: TouriiRoute - Preparatório para a Prova Teórica
+ Um aplicativo desktop para preparação para o exame teórico da CNH.
+ Suporta simulados offline e geração de questões usando Inteligência Artificial.
 EOF
 
-echo "🖥️ 6. Criando o atalho (.desktop)..."
-cat <<EOF > "${DEB_DIR}/usr/share/applications/${APP_NAME}.desktop"
+cat > "${DEB_DIR}/usr/share/applications/${PACKAGE_NAME}.desktop" <<EOF
 [Desktop Entry]
-Name=CNH Simulated
+Name=${APP_NAME} V${VERSION}
 Comment=Estude para a CNH com banco local ou IA
 Exec=/opt/${APP_NAME}/${APP_NAME}
-Icon=${APP_NAME}
+Icon=/opt/${APP_NAME}/icon.png
 Terminal=false
 Type=Application
 Categories=Education;
 EOF
 
-echo "📋 7. Copiando os arquivos para a estrutura..."
-# Copia o diretório buildado pelo pyinstaller para /opt/
-cp -r dist/${APP_NAME}/* "${DEB_DIR}/opt/${APP_NAME}/"
+install -m 755 "${OUTPUT_DIR}/${APP_NAME}-linux" "${DEB_DIR}/opt/${APP_NAME}/${APP_NAME}"
+install -m 644 "$ICON_PATH" "${DEB_DIR}/opt/${APP_NAME}/icon.png"
+ln -s "../../opt/${APP_NAME}/${APP_NAME}" "${DEB_DIR}/usr/bin/${PACKAGE_NAME}"
 
-# Cria um link simbólico relativo na pasta /usr/bin/ para chamar no terminal
-ln -s ../../opt/${APP_NAME}/${APP_NAME} "${DEB_DIR}/usr/bin/${APP_NAME}"
+dpkg-deb --build "$DEB_DIR" "${OUTPUT_DIR}/${DEB_FILE}"
 
-# Copia o ícone SVG para o diretório de ícones do sistema
-cp assets/car-icon.svg "${DEB_DIR}/usr/share/icons/hicolor/scalable/apps/${APP_NAME}.svg"
+rm -rf -- "$BUILD_DIR" "$DIST_DIR"
 
-echo "🛠️ 8. Construindo o pacote final (.deb)..."
-dpkg-deb --build "${DEB_DIR}"
-
-echo "✅ Concluído com Sucesso! Seu pacote gerado é: ${APP_NAME}_${VERSION}_${ARCH}.deb"
+echo "Build concluído. Arquivos gerados em ${OUTPUT_DIR}:"
+printf '  - %s\n' "${APP_NAME}-linux" "$DEB_FILE"
