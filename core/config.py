@@ -10,7 +10,7 @@ ENV_FILE = BASE_DIR / ".env"
 load_dotenv(ENV_FILE)
 
 ASSETS_DIR = BASE_DIR / "assets"
-ICON_PATH = ASSETS_DIR / "car-icon.svg"
+ICON_PATH = ASSETS_DIR / "icon.ico"
 
 THEMES = {
     "dark": {

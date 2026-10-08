@@ -1,7 +1,7 @@
 {
-  "theme": "light",
-  "font_family": "SF Pro Text",
-  "font_size": 10,
+  "theme": "dark",
+  "font_family": "Segoe UI Variable Display",
+  "font_size": 9,
   "questions_per_round": 5,
   "gemini_model": "gemini-flash-lite-latest"
 }
